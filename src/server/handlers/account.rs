@@ -18,17 +18,14 @@ fn millis_to_seconds_opt(timestamp_millis: Option<u64>) -> Option<u64> {
 
 pub struct AccountHandler {
     storage: Arc<dyn crate::common::MockableStorage>,
-    etcd_client: Arc<EtcdClient>,
 }
 
 impl AccountHandler {
     pub fn new(
         storage: Arc<dyn crate::common::MockableStorage>,
-        etcd_client: Arc<EtcdClient>,
     ) -> Self {
         Self {
             storage,
-            etcd_client,
         }
     }
 }
@@ -225,9 +222,9 @@ mod tests {
     use mockall::predicate::eq;
     use uuid::Uuid;
 
-    fn create_mock_etcd_client() -> Arc<EtcdClient> {
-        Arc::new(EtcdClient::new_mock())
-    }
+    // fn create_mock_etcd_client() -> Arc<EtcdClient> {
+    //     Arc::new(EtcdClient::new_mock())
+    // }
 
     #[test]
     fn test_millis_to_seconds_conversion() {
@@ -255,7 +252,7 @@ mod tests {
             .times(1)
             .returning(|_, _, _| Ok(vec![]));
 
-        let handler = AccountHandler::new(Arc::new(mock_storage), create_mock_etcd_client());
+        let handler = AccountHandler::new(Arc::new(mock_storage));
         let request = Request::new(ListBucketsRequest {
             prefix: "".to_string(),
             start_after: "".to_string(),
@@ -297,7 +294,7 @@ mod tests {
             .times(1)
             .returning(move |_, _, _| Ok(cloned_buckets.clone()));
 
-        let handler = AccountHandler::new(Arc::new(mock_storage), create_mock_etcd_client());
+        let handler = AccountHandler::new(Arc::new(mock_storage));
         let request = Request::new(ListBucketsRequest {
             prefix: "prefix".to_string(),
             start_after: "start".to_string(),
@@ -334,7 +331,7 @@ mod tests {
             .times(1)
             .returning(move |_, _, _| Ok(cloned_buckets.clone()));
 
-        let handler = AccountHandler::new(Arc::new(mock_storage), create_mock_etcd_client());
+        let handler = AccountHandler::new(Arc::new(mock_storage));
         let request = Request::new(ListBucketsRequest {
             prefix: "".to_string(),
             start_after: "".to_string(),
@@ -369,7 +366,7 @@ mod tests {
             .times(1)
             .returning(move |_, _| Ok(cloned_bucket_for_mock.clone()));
 
-        let handler = AccountHandler::new(Arc::new(mock_storage), create_mock_etcd_client());
+        let handler = AccountHandler::new(Arc::new(mock_storage));
         let request = Request::new(CreateBucketRequest {
             bucket: bucket_name.clone(),
             config: Some(bucket_config),
@@ -393,7 +390,7 @@ mod tests {
             .times(1)
             .returning(|_, _| Err(SamsaError::Internal("Storage failure".to_string())));
 
-        let handler = AccountHandler::new(Arc::new(mock_storage), create_mock_etcd_client());
+        let handler = AccountHandler::new(Arc::new(mock_storage));
         let request = Request::new(CreateBucketRequest {
             bucket: "error-bucket".to_string(),
             config: Some(BucketConfig::default()),
@@ -418,7 +415,7 @@ mod tests {
             .times(1)
             .returning(|_| Ok(()));
 
-        let handler = AccountHandler::new(Arc::new(mock_storage), create_mock_etcd_client());
+        let handler = AccountHandler::new(Arc::new(mock_storage));
         let request = Request::new(DeleteBucketRequest {
             bucket: bucket_name,
         });
@@ -452,7 +449,7 @@ mod tests {
             .times(1)
             .returning(move |_| Ok(stored_bucket_clone.clone()));
 
-        let handler = AccountHandler::new(Arc::new(mock_storage), create_mock_etcd_client());
+        let handler = AccountHandler::new(Arc::new(mock_storage));
         let request = Request::new(GetBucketConfigRequest {
             bucket: bucket_name,
         });
@@ -504,7 +501,7 @@ mod tests {
             .times(1)
             .returning(|_, _| Ok(()));
 
-        let handler = AccountHandler::new(Arc::new(mock_storage), create_mock_etcd_client());
+        let handler = AccountHandler::new(Arc::new(mock_storage));
         let request = Request::new(ReconfigureBucketRequest {
             bucket: bucket_name.clone(),
             config: Some(new_config),
@@ -538,7 +535,7 @@ mod tests {
             .times(1)
             .returning(move |_| Ok(returned_token_string_clone.clone()));
 
-        let handler = AccountHandler::new(Arc::new(mock_storage), create_mock_etcd_client());
+        let handler = AccountHandler::new(Arc::new(mock_storage));
         let request = Request::new(IssueAccessTokenRequest {
             info: Some(token_info_req),
         });
@@ -573,7 +570,7 @@ mod tests {
             .times(1)
             .returning(move |_| Ok(revoked_token_metadata_struct_clone.clone()));
 
-        let handler = AccountHandler::new(Arc::new(mock_storage), create_mock_etcd_client());
+        let handler = AccountHandler::new(Arc::new(mock_storage));
         let request = Request::new(RevokeAccessTokenRequest {
             id: token_id_to_revoke,
         });
@@ -624,7 +621,7 @@ mod tests {
             .times(1)
             .returning(move |_, _, _| Ok(cloned_tokens.clone()));
 
-        let handler = AccountHandler::new(Arc::new(mock_storage), create_mock_etcd_client());
+        let handler = AccountHandler::new(Arc::new(mock_storage));
         let request = Request::new(ListAccessTokensRequest {
             prefix,
             start_after,

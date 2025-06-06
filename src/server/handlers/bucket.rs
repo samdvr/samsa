@@ -16,14 +16,12 @@ fn millis_to_seconds_opt(timestamp_millis: Option<u64>) -> Option<u64> {
 
 pub struct BucketHandler {
     storage: Arc<Storage>,
-    etcd_client: Arc<EtcdClient>,
 }
 
 impl BucketHandler {
-    pub fn new(storage: Arc<Storage>, etcd_client: Arc<EtcdClient>) -> Self {
+    pub fn new(storage: Arc<Storage>) -> Self {
         Self {
             storage,
-            etcd_client,
         }
     }
 
@@ -75,6 +73,7 @@ impl bucket_service_server::BucketService for BucketHandler {
         }))
     }
 
+    #[allow(clippy::result_large_err)]
     async fn create_stream(
         &self,
         request: Request<CreateStreamRequest>,

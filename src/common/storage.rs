@@ -35,6 +35,7 @@ pub enum ReadFilter {
 
 /// Enhanced error tracking for background tasks
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct BackgroundTaskError {
     task_name: String,
     error: String,
@@ -84,6 +85,8 @@ impl RetryConfig {
         Duration::from_millis(capped_delay)
     }
 }
+
+pub type PaginatedRecordStream<'a> = Pin<Box<dyn Stream<Item = Result<(StoredRecord, Option<String>)>> + Send + 'a>>;
 
 /// Storage handles both metadata and object storage operations with batched record storage.
 ///
@@ -296,7 +299,7 @@ impl Storage {
         let is_degraded = self.is_degraded.clone();
         let retry_config = RetryConfig::default();
 
-        Self::run_background_task("cleanup_task", move || async move {
+        tokio::spawn(Self::run_background_task("cleanup_task", move || async move {
             let mut interval = tokio::time::interval(Duration::from_secs(300)); // Every 5 minutes
 
             loop {
@@ -508,7 +511,7 @@ impl Storage {
         let is_degraded = self.is_degraded.clone();
         let retry_config = RetryConfig::default();
 
-        Self::run_background_task("batch_flush_task", move || async move {
+        tokio::spawn(Self::run_background_task("batch_flush_task", move || async move {
             let mut interval =
                 tokio::time::interval(Duration::from_millis(batch_config.flush_interval_ms));
 
@@ -745,12 +748,6 @@ impl Storage {
 
     fn get_batch_path(&self, bucket: &str, stream: &str, batch_id: &str) -> String {
         format!("{}/{}/{}/{}", bucket, stream, self.node_id, batch_id)
-    }
-
-    /// Get prefix for writing to the current node's directory
-    /// This is used when writing new batches to ensure they go to the current node
-    fn get_stream_prefix(&self, bucket: &str, stream: &str) -> String {
-        format!("{bucket}/{stream}/{}/", self.node_id)
     }
 
     /// Get prefix for reading from all nodes for a stream
@@ -1748,7 +1745,7 @@ impl Storage {
         stream: &str,
         start_after_seq_id: &str,
         limit: Option<u64>,
-    ) -> Pin<Box<dyn Stream<Item = Result<(StoredRecord, Option<String>)>> + Send + '_>> {
+    ) -> PaginatedRecordStream<'_> {
         let bucket = bucket.to_string();
         let stream_name = stream.to_string();
         let start_after_seq_id = start_after_seq_id.to_string();
