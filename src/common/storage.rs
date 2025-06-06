@@ -445,7 +445,7 @@ impl Storage {
             tracing::error!(
                 "Cleanup task loop exited - this should not happen in normal operation"
             );
-        });
+        })); // Corrected closing for tokio::spawn(Self::run_background_task(...))
     }
 
     /// Helper method to perform all cleanup operations
@@ -670,7 +670,7 @@ impl Storage {
             tracing::error!(
                 "Batch flush task loop exited - this is critical and may cause data loss!"
             );
-        });
+        })); // Corrected closing for tokio::spawn(Self::run_background_task(...))
     }
 
     /// Helper method to perform a complete batch flush cycle
