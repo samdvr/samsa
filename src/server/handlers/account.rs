@@ -1,4 +1,3 @@
-use crate::common::EtcdClient;
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
 

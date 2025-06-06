@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
 
-use crate::common::{EtcdClient, Storage};
+use crate::common::Storage;
 use crate::proto::*;
 
 /// Convert millisecond timestamp (u64) to second timestamp (u64) for protobuf compatibility

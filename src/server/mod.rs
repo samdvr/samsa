@@ -137,8 +137,8 @@ pub async fn run_server() -> Result<()> {
 
     // Create gRPC service handlers - all services are hosted on this unified server
     let etcd_client_arc = Arc::new(etcd_client);
-    let account_handler = AccountHandler::new(storage.clone(), etcd_client_arc.clone());
-    let bucket_handler = BucketHandler::new(storage.clone(), etcd_client_arc.clone());
+    let account_handler = AccountHandler::new(storage.clone());
+    let bucket_handler = BucketHandler::new(storage.clone());
     let stream_handler = StreamHandler::new(storage.clone());
 
     // Build and start the server with all services
