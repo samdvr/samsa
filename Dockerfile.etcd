@@ -1,0 +1,17 @@
+FROM quay.io/coreos/etcd:v3.5.14
+
+# Expose etcd client and peer ports
+EXPOSE 2379 2380
+
+# Default command
+CMD ["/usr/local/bin/etcd", \
+     "--data-dir=/etcd-data", \
+     "--listen-client-urls=http://0.0.0.0:2379", \
+     "--advertise-client-urls=http://0.0.0.0:2379", \
+     "--listen-peer-urls=http://0.0.0.0:2380", \
+     "--initial-advertise-peer-urls=http://0.0.0.0:2380", \
+     "--initial-cluster=default=http://0.0.0.0:2380", \
+     "--initial-cluster-token=etcd-cluster-1", \
+     "--initial-cluster-state=new", \
+     "--auto-compaction-retention=1h", \
+     "--max-request-bytes=33554432"] 

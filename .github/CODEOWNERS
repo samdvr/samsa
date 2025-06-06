@@ -1,0 +1,77 @@
+# Global fallback for any files not covered by specific rules
+* @maintainer-team
+
+# Core source code
+/src/ @core-team @maintainer-team
+
+# Storage and metadata systems (critical components)
+/src/common/storage.rs @storage-team @core-team
+/src/common/metadata.rs @storage-team @core-team
+/src/common/batch.rs @storage-team @core-team
+
+# gRPC and API definitions
+/src/proto/ @api-team @core-team
+/proto/ @api-team @core-team
+
+# CLI tools
+/src/bin/samsa-cli.rs @cli-team @core-team
+
+# Server binary
+/src/bin/server.rs @server-team @core-team
+
+# Configuration and deployment
+/config/ @ops-team @core-team
+/k8s/ @ops-team @infrastructure-team
+/docker/ @ops-team @infrastructure-team
+
+# Testing infrastructure
+/tests/ @testing-team @core-team
+/run_consolidated_tests.sh @testing-team @core-team
+
+# CI/CD and automation
+/.github/ @ci-team @core-team
+/.github/workflows/ @ci-team @ops-team
+
+# Documentation
+/README.md @docs-team @core-team
+/docs/ @docs-team
+*.md @docs-team
+
+# Cargo and Rust configuration
+/Cargo.toml @core-team @maintainer-team
+/Cargo.lock @core-team
+/rust-toolchain @core-team
+
+# Security and dependency management
+/deny.toml @security-team @core-team
+/.github/dependabot.yml @security-team @ci-team
+
+# Examples and demos
+/examples/ @docs-team @core-team
+
+# Build and compilation
+/build.rs @build-team @core-team
+
+# Observability and metrics
+/src/common/metrics.rs @observability-team @core-team
+/src/common/tracing.rs @observability-team @core-team
+
+# Error handling
+/src/common/error.rs @core-team
+
+# Performance-critical components
+/src/common/storage.rs @performance-team @storage-team @core-team
+
+# Configuration files that require special attention
+/config/production.toml @ops-team @security-team @core-team
+
+# Scripts and automation
+*.sh @ops-team @ci-team
+/scripts/ @ops-team @ci-team
+
+# License and legal
+/LICENSE @legal-team @maintainer-team
+/COPYRIGHT @legal-team @maintainer-team
+
+# Release and packaging
+/.github/workflows/release.yml @release-team @core-team @ops-team 

@@ -1,0 +1,28 @@
+[router]
+address = "127.0.0.1"
+port = 50051
+etcd_endpoints = ["http://localhost:2379"]
+
+[server]
+node_id = "550e8400-e29b-41d4-a716-446655440003"
+address = "127.0.0.1"
+port = 50052
+etcd_endpoints = ["http://localhost:2379"]
+heartbeat_interval_secs = 60
+lease_ttl_secs = 120
+
+[observability]
+metrics_port = 9091
+log_level = "debug"
+service_name = "samsa-server-dev"
+node_id = "dev-node-1"
+enable_otel_tracing = false
+otel_endpoint = ""
+
+[storage]
+node_id = "dev-node-1"
+batch_size = 10
+batch_max_bytes = 102400
+batch_flush_interval_ms = 1000
+cleanup_interval_secs = 300
+cleanup_grace_period_secs = 3600

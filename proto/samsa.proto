@@ -1,0 +1,468 @@
+syntax = "proto3";
+
+package samsa.v1;
+
+import "google/protobuf/field_mask.proto";
+
+option java_multiple_files = true;
+option java_package = "samsa.v1";
+
+// Account service for managing buckets and access tokens
+service AccountService {
+  // List buckets
+  rpc ListBuckets(ListBucketsRequest) returns (ListBucketsResponse);
+
+  // Create a new bucket
+  rpc CreateBucket(CreateBucketRequest) returns (CreateBucketResponse);
+
+  // Delete a bucket
+  rpc DeleteBucket(DeleteBucketRequest) returns (DeleteBucketResponse);
+
+  // Update bucket configuration
+  rpc ReconfigureBucket(ReconfigureBucketRequest)
+      returns (ReconfigureBucketResponse);
+
+  // Get bucket configuration
+  rpc GetBucketConfig(GetBucketConfigRequest) returns (GetBucketConfigResponse);
+
+  // Issue a new access token
+  rpc IssueAccessToken(IssueAccessTokenRequest)
+      returns (IssueAccessTokenResponse);
+
+  // Revoke an access token
+  rpc RevokeAccessToken(RevokeAccessTokenRequest)
+      returns (RevokeAccessTokenResponse);
+
+  // List access tokens
+  rpc ListAccessTokens(ListAccessTokensRequest)
+      returns (ListAccessTokensResponse);
+}
+
+// Bucket service for managing streams
+service BucketService {
+  // List streams
+  rpc ListStreams(ListStreamsRequest) returns (ListStreamsResponse);
+
+  // Create a stream
+  rpc CreateStream(CreateStreamRequest) returns (CreateStreamResponse);
+
+  // Delete a stream
+  rpc DeleteStream(DeleteStreamRequest) returns (DeleteStreamResponse);
+
+  // Get stream configuration
+  rpc GetStreamConfig(GetStreamConfigRequest) returns (GetStreamConfigResponse);
+
+  // Update stream configuration
+  rpc ReconfigureStream(ReconfigureStreamRequest)
+      returns (ReconfigureStreamResponse);
+}
+
+// Stream service for data operations
+service StreamService {
+  // Check the tail of the stream
+  rpc CheckTail(CheckTailRequest) returns (CheckTailResponse);
+
+  // Append a batch of records to a stream
+  rpc Append(AppendRequest) returns (AppendResponse);
+
+  // Append batches of records continuously
+  rpc AppendSession(stream AppendSessionRequest)
+      returns (stream AppendSessionResponse);
+
+  // Retrieve a batch of records from a stream
+  rpc Read(ReadRequest) returns (ReadResponse);
+
+  // Retrieve batches of records continuously
+  rpc ReadSession(ReadSessionRequest) returns (stream ReadSessionResponse);
+}
+
+// Standardized error handling types
+message ErrorDetail {
+  // Error code for programmatic handling
+  ErrorCode code = 1;
+  
+  // Human-readable error message
+  string message = 2;
+  
+  // Additional context for debugging
+  map<string, string> metadata = 3;
+  
+  // Field that caused the error (for validation errors)
+  optional string field = 4;
+  
+  // Request ID for tracing
+  optional string request_id = 5;
+}
+
+enum ErrorCode {
+  ERROR_CODE_UNSPECIFIED = 0;
+  
+  // Client errors (4xx equivalent)
+  ERROR_CODE_INVALID_ARGUMENT = 1;
+  ERROR_CODE_NOT_FOUND = 2;
+  ERROR_CODE_ALREADY_EXISTS = 3;
+  ERROR_CODE_PERMISSION_DENIED = 4;
+  ERROR_CODE_PRECONDITION_FAILED = 5;
+  ERROR_CODE_RESOURCE_EXHAUSTED = 6;
+  ERROR_CODE_INVALID_SEQUENCE_ID = 7;
+  ERROR_CODE_INVALID_TIMESTAMP = 8;
+  ERROR_CODE_BUCKET_NOT_EMPTY = 9;
+  ERROR_CODE_STREAM_NOT_EMPTY = 10;
+  ERROR_CODE_ACCESS_TOKEN_EXPIRED = 11;
+  ERROR_CODE_INVALID_ACCESS_TOKEN = 12;
+  
+  // Server errors (5xx equivalent)
+  ERROR_CODE_INTERNAL_ERROR = 100;
+  ERROR_CODE_SERVICE_UNAVAILABLE = 101;
+  ERROR_CODE_STORAGE_ERROR = 102;
+  ERROR_CODE_DATABASE_ERROR = 103;
+  ERROR_CODE_ETCD_ERROR = 104;
+  ERROR_CODE_NETWORK_ERROR = 105;
+}
+
+// Common types
+message Header {
+  bytes name = 1;
+  bytes value = 2;
+}
+
+message AppendRecord {
+  optional uint64 timestamp = 1;
+  repeated Header headers = 2;
+  bytes body = 3;
+}
+
+message SequencedRecord {
+  string seq_id = 1;
+  uint64 timestamp = 2;
+  repeated Header headers = 3;
+  bytes body = 4;
+}
+
+message SequencedRecordBatch { repeated SequencedRecord records = 1; }
+
+// Bucket operations
+message ListBucketsRequest {
+  string prefix = 1;
+  string start_after = 2;
+  optional uint64 limit = 3;
+}
+
+message ListBucketsResponse {
+  repeated BucketInfo buckets = 1;
+  bool has_more = 2;
+  optional ErrorDetail error = 3;
+}
+
+message CreateBucketRequest {
+  string bucket = 1;
+  BucketConfig config = 2;
+}
+
+message CreateBucketResponse { 
+  BucketInfo info = 1; 
+  optional ErrorDetail error = 2;
+}
+
+message DeleteBucketRequest { string bucket = 1; }
+
+message DeleteBucketResponse {
+  optional ErrorDetail error = 1;
+}
+
+message GetBucketConfigRequest { string bucket = 1; }
+
+message GetBucketConfigResponse { 
+  BucketConfig config = 1;
+  optional ErrorDetail error = 2;
+}
+
+message ReconfigureBucketRequest {
+  string bucket = 1;
+  BucketConfig config = 2;
+  google.protobuf.FieldMask mask = 3;
+}
+
+message ReconfigureBucketResponse { 
+  BucketConfig config = 1;
+  optional ErrorDetail error = 2;
+}
+
+message BucketInfo {
+  string name = 1;
+  BucketState state = 2;
+  // Changed from uint32 to uint64 for millisecond timestamp consistency
+  uint64 created_at = 3;
+  // Changed from uint32 to uint64 for millisecond timestamp consistency
+  optional uint64 deleted_at = 4;
+}
+
+message BucketConfig {
+  StreamConfig default_stream_config = 1;
+  bool create_stream_on_append = 2;
+  bool create_stream_on_read = 3;
+}
+
+enum BucketState {
+  BUCKET_STATE_UNSPECIFIED = 0;
+  BUCKET_STATE_ACTIVE = 1;
+  BUCKET_STATE_CREATING = 2;
+  BUCKET_STATE_DELETING = 3;
+}
+
+// Stream operations
+message ListStreamsRequest {
+  string prefix = 1;
+  string start_after = 2;
+  optional uint64 limit = 3;
+}
+
+message ListStreamsResponse {
+  repeated StreamInfo streams = 1;
+  bool has_more = 2;
+  optional ErrorDetail error = 3;
+}
+
+message CreateStreamRequest {
+  string stream = 1;
+  StreamConfig config = 2;
+}
+
+message CreateStreamResponse { 
+  StreamInfo info = 1;
+  optional ErrorDetail error = 2;
+}
+
+message DeleteStreamRequest { string stream = 1; }
+
+message DeleteStreamResponse {
+  optional ErrorDetail error = 1;
+}
+
+message GetStreamConfigRequest { string stream = 1; }
+
+message GetStreamConfigResponse { 
+  StreamConfig config = 1;
+  optional ErrorDetail error = 2;
+}
+
+message ReconfigureStreamRequest {
+  string stream = 1;
+  StreamConfig config = 2;
+  google.protobuf.FieldMask mask = 3;
+}
+
+message ReconfigureStreamResponse { 
+  StreamConfig config = 1;
+  optional ErrorDetail error = 2;
+}
+
+message StreamInfo {
+  string name = 1;
+  uint64 created_at = 2;
+  optional uint64 deleted_at = 3;
+}
+
+message StreamConfig {
+  StorageClass storage_class = 1;
+  optional uint64 retention_age_seconds = 2;
+  TimestampingMode timestamping_mode = 3;
+  bool allow_future_timestamps = 4;
+}
+
+enum StorageClass {
+  STORAGE_CLASS_UNSPECIFIED = 0;
+  STORAGE_CLASS_STANDARD = 1;
+  STORAGE_CLASS_EXPRESS = 2;
+}
+
+enum TimestampingMode {
+  TIMESTAMPING_MODE_UNSPECIFIED = 0;
+  TIMESTAMPING_MODE_CLIENT_PREFER = 1;
+  TIMESTAMPING_MODE_CLIENT_REQUIRE = 2;
+  TIMESTAMPING_MODE_ARRIVAL = 3;
+}
+
+// Stream data operations
+message CheckTailRequest {
+  string bucket = 1;
+  string stream = 2;
+}
+
+message CheckTailResponse {
+  string next_seq_id = 1;
+  uint64 last_timestamp = 2;
+  optional ErrorDetail error = 3;
+}
+
+message AppendRequest {
+  string bucket = 1;
+  string stream = 2;
+  repeated AppendRecord records = 3;
+  optional string match_seq_id = 4;
+  optional string fencing_token = 5;
+}
+
+message AppendResponse {
+  string start_seq_id = 1;
+  string end_seq_id = 2;
+  uint64 start_timestamp = 3;
+  uint64 end_timestamp = 4;
+  string next_seq_id = 5;
+  uint64 last_timestamp = 6;
+  optional ErrorDetail error = 7;
+}
+
+message AppendSessionRequest {
+  string bucket = 1;
+  string stream = 2;
+  repeated AppendRecord records = 3;
+  optional string match_seq_id = 4;
+  optional string fencing_token = 5;
+}
+
+message AppendSessionResponse {
+  string start_seq_id = 1;
+  string end_seq_id = 2;
+  uint64 start_timestamp = 3;
+  uint64 end_timestamp = 4;
+  string next_seq_id = 5;
+  uint64 last_timestamp = 6;
+  optional ErrorDetail error = 7;
+}
+
+message ReadRequest {
+  string bucket = 1;
+  string stream = 2;
+  oneof start {
+    string seq_id = 3;
+    uint64 timestamp = 4;
+    uint64 tail_offset = 5;
+  }
+  optional ReadLimit limit = 6;
+}
+
+message ReadResponse {
+  oneof output {
+    SequencedRecordBatch batch = 1;
+    string next_seq_id = 2;
+  }
+  optional ErrorDetail error = 3;
+}
+
+message ReadSessionRequest {
+  string bucket = 1;
+  string stream = 2;
+  oneof start {
+    string seq_id = 3;
+    uint64 timestamp = 4;
+    uint64 tail_offset = 5;
+  }
+  optional ReadLimit limit = 6;
+  bool heartbeats = 7;
+}
+
+message ReadSessionResponse { 
+  optional ReadOutput output = 1;
+  optional ErrorDetail error = 2;
+}
+
+message ReadOutput {
+  oneof output {
+    SequencedRecordBatch batch = 1;
+    string next_seq_id = 2;
+  }
+}
+
+message ReadLimit {
+  optional uint64 count = 1;
+  optional uint64 bytes = 2;
+}
+
+// Access token operations
+message IssueAccessTokenRequest { AccessTokenInfo info = 1; }
+
+message IssueAccessTokenResponse { 
+  string access_token = 1;
+  optional ErrorDetail error = 2;
+}
+
+message RevokeAccessTokenRequest { string id = 1; }
+
+message RevokeAccessTokenResponse { 
+  AccessTokenInfo info = 1;
+  optional ErrorDetail error = 2;
+}
+
+message ListAccessTokensRequest {
+  string prefix = 1;
+  string start_after = 2;
+  optional uint64 limit = 3;
+}
+
+message ListAccessTokensResponse {
+  repeated AccessTokenInfo access_tokens = 1;
+  bool has_more = 2;
+  optional ErrorDetail error = 3;
+}
+
+message AccessTokenInfo {
+  string id = 1;
+  optional uint64 expires_at = 2;
+  bool auto_prefix_streams = 3;
+  AccessTokenScope scope = 4;
+}
+
+message AccessTokenScope {
+  ResourceSet buckets = 1;
+  ResourceSet streams = 2;
+  ResourceSet access_tokens = 3;
+  repeated Operation ops = 4;
+}
+
+message ResourceSet {
+  oneof matching {
+    string exact = 1;
+    string prefix = 2;
+  }
+}
+
+enum Operation {
+  OPERATION_UNSPECIFIED = 0;
+  OPERATION_LIST_BUCKETS = 1;
+  OPERATION_CREATE_BUCKET = 2;
+  OPERATION_DELETE_BUCKET = 3;
+  OPERATION_RECONFIGURE_BUCKET = 4;
+  OPERATION_GET_BUCKET_CONFIG = 5;
+  OPERATION_ISSUE_ACCESS_TOKEN = 6;
+  OPERATION_REVOKE_ACCESS_TOKEN = 7;
+  OPERATION_LIST_ACCESS_TOKENS = 8;
+  OPERATION_LIST_STREAMS = 9;
+  OPERATION_CREATE_STREAM = 10;
+  OPERATION_DELETE_STREAM = 11;
+  OPERATION_GET_STREAM_CONFIG = 12;
+  OPERATION_RECONFIGURE_STREAM = 13;
+  OPERATION_CHECK_TAIL = 14;
+  OPERATION_APPEND = 15;
+  OPERATION_READ = 16;
+}
+
+// Storage layer messages (not exposed in API, used for internal storage)
+message StoredRecord {
+  string seq_id = 1;
+  uint64 timestamp = 2;
+  repeated Header headers = 3;
+  bytes body = 4;
+}
+
+message StoredRecordBatch {
+  string batch_id = 1;
+  string bucket = 2;
+  string stream = 3;
+  repeated StoredRecord records = 4;
+  uint64 created_at = 5;
+  string first_seq_id = 6;
+  string last_seq_id = 7;
+  uint64 first_timestamp = 8;
+  uint64 last_timestamp = 9;
+}

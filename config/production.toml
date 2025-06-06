@@ -1,0 +1,39 @@
+# Samsa Production Configuration
+# Optimized for production deployment
+
+[router]
+address = "0.0.0.0"
+port = 50051
+etcd_endpoints = [
+  "https://etcd-1.cluster.local:2379",
+  "https://etcd-2.cluster.local:2379",
+  "https://etcd-3.cluster.local:2379",
+]
+
+[server]
+node_id = "550e8400-e29b-41d4-a716-446655440002"
+address = "0.0.0.0"
+port = 50052
+etcd_endpoints = [
+  "https://etcd-1.cluster.local:2379",
+  "https://etcd-2.cluster.local:2379",
+  "https://etcd-3.cluster.local:2379",
+]
+heartbeat_interval_secs = 15 # More frequent for production
+lease_ttl_secs = 45
+
+[observability]
+metrics_port = 9090
+log_level = "warn"                                       # Less verbose for production
+service_name = "samsa-server-prod"
+node_id = "prod-node-1"
+enable_otel_tracing = true
+otel_endpoint = "https://otel-collector.monitoring:4317"
+
+[storage]
+node_id = "prod-node-1"
+batch_size = 500                   # Larger batches for efficiency
+batch_max_bytes = 5242880          # 5MB
+batch_flush_interval_ms = 10000    # 10 seconds
+cleanup_interval_secs = 1800       # 30 minutes
+cleanup_grace_period_secs = 604800 # 7 days

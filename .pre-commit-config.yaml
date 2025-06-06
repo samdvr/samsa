@@ -1,0 +1,30 @@
+repos:
+  - repo: local
+    hooks:
+      # Auto-fix formatting and clippy issues
+      - id: cargo-fmt
+        name: cargo fmt
+        description: Format files with cargo fmt
+        entry: cargo
+        args: [fmt]
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      - id: cargo-clippy-fix
+        name: cargo clippy --fix
+        description: Fix clippy issues automatically
+        entry: cargo
+        args: [clippy, --fix, --all-targets, --all-features, --allow-dirty, --allow-staged, --, -D, warnings]
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      - id: cargo-check
+        name: cargo check
+        description: Check the package for errors
+        entry: cargo
+        args: [check, --locked]
+        language: system
+        types: [rust]
+        pass_filenames: false

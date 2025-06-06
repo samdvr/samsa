@@ -1,0 +1,95 @@
+[package]
+name = "samsa"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+otel = [
+  "tracing-opentelemetry",
+  "opentelemetry",
+  "opentelemetry_sdk",
+  "opentelemetry-otlp",
+]
+
+[[bin]]
+name = "server"
+path = "src/server/main.rs"
+
+[[bin]]
+name = "samsa-cli"
+path = "src/cli/main.rs"
+
+[[example]]
+name = "simple_client"
+path = "examples/simple_client.rs"
+
+[dependencies]
+tokio = { version = "1.0", features = ["full"] }
+tonic = { version = "0.12", features = ["transport", "codegen", "prost"] }
+prost = "0.13"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1.0", features = ["v4", "v7", "serde"] }
+thiserror = "1.0"
+futures = "0.3"
+async-trait = "0.1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-opentelemetry = { version = "0.22", optional = true }
+opentelemetry = { version = "0.21", features = ["trace"], optional = true }
+opentelemetry_sdk = { version = "0.21", features = [
+  "trace",
+  "rt-tokio",
+], optional = true }
+opentelemetry-otlp = { version = "0.14", features = ["trace"], optional = true }
+tokio-stream = "0.1"
+dashmap = "6.0"
+object_store = "0.11"
+etcd-client = "0.14"
+clap = { version = "4.0", features = ["derive"] }
+futures-util = "0.3.31"
+async-stream = "0.3"
+
+# PostgreSQL dependencies
+sqlx = { version = "0.8", features = [
+  "runtime-tokio-rustls",
+  "postgres",
+  "uuid",
+  "chrono",
+  "json",
+] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# Metrics dependencies
+metrics = "0.23"
+metrics-exporter-prometheus = "0.15"
+
+# Configuration management
+figment = { version = "0.10", features = ["env", "toml", "json"] }
+validator = { version = "0.18", features = ["derive"] }
+prost-types = "0.13.5"
+pbjson = "0.7.0"
+
+[dev-dependencies]
+tempfile = "3.8"
+uuid = { version = "1.0", features = ["v4"] }
+mockall = "0.12"
+
+[build-dependencies]
+tonic-build = "0.12"
+pbjson-build = "0.7"
+
+# Optimize for fast test builds and execution
+[profile.test]
+opt-level = 1       # Some optimization for faster execution
+debug = 1           # Reduced debug info for faster compilation
+incremental = true  # Incremental compilation for faster rebuilds
+codegen-units = 256 # More parallel compilation units
+
+# Fast development builds
+[profile.dev]
+opt-level = 0
+debug = 2
+incremental = true
+codegen-units = 256

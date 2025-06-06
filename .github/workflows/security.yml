@@ -1,0 +1,345 @@
+name: Security
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run security scans daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-audit-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-audit-
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      - name: Run cargo audit
+        uses: actions-rs/cargo@v1
+        with:
+          command: audit
+          args: --json --format json | tee audit-results.json
+
+      - name: Upload audit results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: security-audit-results
+          path: audit-results.json
+          retention-days: 30
+
+  deny:
+    name: Cargo Deny
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install cargo-deny
+        run: |
+          curl -L https://github.com/EmbarkStudios/cargo-deny/releases/latest/download/cargo-deny-x86_64-unknown-linux-musl.tar.gz | tar xzf - -C ~/.cargo/bin --strip-components=1
+
+      - name: Create deny.toml if it doesn't exist
+        run: |
+          if [ ! -f deny.toml ]; then
+            cat > deny.toml << 'EOF'
+          [advisories]
+          # The path where the advisory database is cloned/fetched into
+          db-path = "~/.cargo/advisory-db"
+          # The url(s) of the advisory databases to use
+          db-urls = ["https://github.com/rustsec/advisory-db"]
+          # The lint level for security vulnerabilities
+          vulnerability = "deny"
+          # The lint level for unmaintained crates
+          unmaintained = "warn"
+          # The lint level for crates that have been yanked from their source registry
+          yanked = "warn"
+          # The lint level for crates with security notices
+          notice = "warn"
+          # A list of advisory IDs to ignore
+          ignore = [
+              # "RUSTSEC-0000-0000",
+          ]
+
+          [licenses]
+          # The confidence threshold for detecting a license from a license text.
+          confidence-threshold = 0.8
+          # List of explicitly allowed licenses
+          allow = [
+              "MIT",
+              "Apache-2.0",
+              "Apache-2.0 WITH LLVM-exception",
+              "BSD-2-Clause",
+              "BSD-3-Clause",
+              "ISC",
+              "Unicode-DFS-2016",
+              "CC0-1.0",
+          ]
+          # List of explicitly disallowed licenses
+          deny = [
+              "GPL-2.0",
+              "GPL-3.0",
+              "AGPL-1.0",
+              "AGPL-3.0",
+          ]
+          # Lint level for when multiple versions of the same license are detected
+          copyleft = "warn"
+          # Confidence threshold for detecting a license from a license text
+          allow-osi-fsf-free = "both"
+          # List of explicitly allowed licenses
+          default = "deny"
+
+          [bans]
+          # Lint level for when multiple versions of the same crate are detected
+          multiple-versions = "warn"
+          # Lint level for when a crate version requirement is `*`
+          wildcards = "allow"
+          # The graph highlighting used when creating dotgraphs for crates
+          highlight = "all"
+          # List of crates that are allowed
+          allow = []
+          # List of crates to deny
+          deny = [
+              # Each entry can be either a crate name, or a crate name and version requirement
+              # { name = "ansi_term", version = "=0.11.0" },
+          ]
+          # Certain crates/versions that will be skipped when doing duplicate detection.
+          skip = []
+          # Similarly to `skip` allows you to skip certain crates from being checked for duplicates.
+          skip-tree = []
+
+          [sources]
+          # Lint level for what to happen when a crate from a crate registry that is not in the allow list is encountered
+          unknown-registry = "warn"
+          # Lint level for what to happen when a crate from a git repository that is not in the allow list is encountered
+          unknown-git = "warn"
+          # List of allowed crate registries
+          allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+          # List of allowed Git repositories
+          allow-git = []
+          EOF
+          fi
+
+      - name: Run cargo deny
+        run: cargo deny check
+
+  dependabot:
+    name: Dependabot Config
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Create Dependabot config
+        run: |
+          mkdir -p .github
+          cat > .github/dependabot.yml << 'EOF'
+          version: 2
+          updates:
+            - package-ecosystem: "cargo"
+              directory: "/"
+              schedule:
+                interval: "weekly"
+                day: "monday"
+                time: "09:00"
+              open-pull-requests-limit: 10
+              reviewers:
+                - "maintainer-team"  # Replace with actual maintainer team
+              assignees:
+                - "maintainer-team"  # Replace with actual maintainer team
+              commit-message:
+                prefix: "deps"
+                include: "scope"
+              labels:
+                - "dependencies"
+                - "rust"
+
+            - package-ecosystem: "github-actions"
+              directory: "/"
+              schedule:
+                interval: "weekly"
+                day: "monday"
+                time: "09:00"
+              open-pull-requests-limit: 5
+              commit-message:
+                prefix: "ci"
+                include: "scope"
+              labels:
+                - "dependencies"
+                - "github-actions"
+
+            - package-ecosystem: "docker"
+              directory: "/"
+              schedule:
+                interval: "weekly"
+                day: "monday"
+                time: "09:00"
+              open-pull-requests-limit: 5
+              commit-message:
+                prefix: "docker"
+                include: "scope"
+              labels:
+                - "dependencies"
+                - "docker"
+          EOF
+
+      - name: Commit Dependabot config
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          if [ -n "$(git status --porcelain)" ]; then
+            git add .github/dependabot.yml
+            git commit -m "chore: add dependabot configuration"
+            git push
+          fi
+
+  codeql:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: 'cpp'  # CodeQL treats Rust as C++
+          config-file: ./.github/codeql/codeql-config.yml
+
+      - name: Create CodeQL config
+        run: |
+          mkdir -p .github/codeql
+          cat > .github/codeql/codeql-config.yml << 'EOF'
+          name: "Samsa  CodeQL Config"
+          
+          disable-default-queries: false
+          
+          queries:
+            - uses: security-and-quality
+            - uses: security-extended
+          
+          paths-ignore:
+            - target/
+            - "**/*.md"
+            - "**/*.txt"
+            - examples/
+          
+          paths:
+            - src/
+          EOF
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@v2
+        with:
+          version: '23.x'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build project
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:cpp"
+
+  semgrep:
+    name: Semgrep Security Scan
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'  # Don't run on scheduled builds to avoid rate limits
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/security-audit
+            p/secrets
+            p/rust
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+        continue-on-error: true
+
+  supply-chain:
+    name: Supply Chain Security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Generate SBOM
+        run: |
+          cargo install cargo-cyclonedx
+          cargo cyclonedx --format json --output-file sbom.json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v3
+        with:
+          name: software-bill-of-materials
+          path: sbom.json
+          retention-days: 90
+
+      - name: Check for known vulnerabilities in SBOM
+        run: |
+          # Install grype for vulnerability scanning
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+          
+          # Scan the SBOM for vulnerabilities
+          grype sbom:sbom.json -o json | tee vulnerability-report.json
+
+      - name: Upload vulnerability report
+        uses: actions/upload-artifact@v3
+        with:
+          name: vulnerability-report
+          path: vulnerability-report.json
+          retention-days: 90 

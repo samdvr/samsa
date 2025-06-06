@@ -1,0 +1,31 @@
+# Samsa Example Configuration File
+# This file demonstrates the new centralized configuration system
+
+[router]
+address = "0.0.0.0"
+port = 50051
+etcd_endpoints = ["http://localhost:2379", "http://etcd-2:2379"]
+
+[server]
+node_id = "550e8400-e29b-41d4-a716-446655440001"
+address = "0.0.0.0"
+port = 50052
+etcd_endpoints = ["http://localhost:2379", "http://etcd-2:2379"]
+heartbeat_interval_secs = 30
+lease_ttl_secs = 90
+
+[observability]
+metrics_port = 9090
+log_level = "info"
+service_name = "samsa-server"
+node_id = "node-1"
+enable_otel_tracing = false
+# otel_endpoint = "http://jaeger:14268/api/traces"
+
+[storage]
+node_id = "node-1"
+batch_size = 100
+batch_max_bytes = 1048576         # 1MB
+batch_flush_interval_ms = 5000    # 5 seconds
+cleanup_interval_secs = 3600      # 1 hour
+cleanup_grace_period_secs = 86400 # 24 hours

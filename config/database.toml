@@ -1,0 +1,7 @@
+# Database Configuration for Samsa
+url = "postgresql://postgres:password@localhost:5432/samsa"
+max_connections = 20
+min_connections = 1
+acquire_timeout_seconds = 30
+idle_timeout_seconds = 600
+enable_migrations = true

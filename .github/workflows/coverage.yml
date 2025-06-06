@@ -1,0 +1,277 @@
+name: Coverage
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    services:
+      etcd:
+        image: quay.io/coreos/etcd:v3.5.14
+        ports:
+          - 2379:2379
+          - 2380:2380
+        env:
+          ETCD_ADVERTISE_CLIENT_URLS: http://0.0.0.0:2379
+          ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+          ETCD_LISTEN_PEER_URLS: http://0.0.0.0:2380
+          ETCD_INITIAL_ADVERTISE_PEER_URLS: http://0.0.0.0:2380
+          ETCD_INITIAL_CLUSTER: default=http://0.0.0.0:2380
+          ETCD_INITIAL_CLUSTER_TOKEN: etcd-cluster
+          ETCD_INITIAL_CLUSTER_STATE: new
+          ETCD_DATA_DIR: /etcd-data
+        options: >-
+          --health-cmd="etcdctl endpoint health --endpoints=http://localhost:2379"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          components: llvm-tools-preview
+
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-coverage-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-coverage-
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@v2
+        with:
+          version: '23.x'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install cargo-llvm-cov
+        uses: actions-rs/install@v0.1
+        with:
+          crate: cargo-llvm-cov
+          version: latest
+          use-tool-cache: true
+
+      - name: Wait for etcd to be ready
+        run: |
+          timeout 30 bash -c 'until curl -f http://localhost:2379/health; do sleep 1; done'
+
+      - name: Generate code coverage
+        run: |
+          cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+        env:
+          ETCD_ENDPOINTS: http://localhost:2379
+          RUST_LOG: debug
+
+      - name: Generate HTML report
+        run: |
+          cargo llvm-cov --all-features --workspace --html --output-dir coverage-html
+        env:
+          ETCD_ENDPOINTS: http://localhost:2379
+          RUST_LOG: debug
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: lcov.info
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: true
+          verbose: true
+
+      - name: Upload HTML coverage report
+        uses: actions/upload-artifact@v3
+        with:
+          name: coverage-report
+          path: coverage-html/
+          retention-days: 30
+
+      - name: Coverage Summary
+        run: |
+          cargo llvm-cov --all-features --workspace --summary-only
+        env:
+          ETCD_ENDPOINTS: http://localhost:2379
+
+  coverage-differential:
+    name: Differential Coverage
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    services:
+      etcd:
+        image: quay.io/coreos/etcd:v3.5.14
+        ports:
+          - 2379:2379
+          - 2380:2380
+        env:
+          ETCD_ADVERTISE_CLIENT_URLS: http://0.0.0.0:2379
+          ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+          ETCD_LISTEN_PEER_URLS: http://0.0.0.0:2380
+          ETCD_INITIAL_ADVERTISE_PEER_URLS: http://0.0.0.0:2380
+          ETCD_INITIAL_CLUSTER: default=http://0.0.0.0:2380
+          ETCD_INITIAL_CLUSTER_TOKEN: etcd-cluster
+          ETCD_INITIAL_CLUSTER_STATE: new
+          ETCD_DATA_DIR: /etcd-data
+        options: >-
+          --health-cmd="etcdctl endpoint health --endpoints=http://localhost:2379"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          components: llvm-tools-preview
+
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-coverage-diff-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-coverage-diff-
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@v2
+        with:
+          version: '23.x'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install cargo-llvm-cov
+        uses: actions-rs/install@v0.1
+        with:
+          crate: cargo-llvm-cov
+          version: latest
+          use-tool-cache: true
+
+      - name: Wait for etcd to be ready
+        run: |
+          timeout 30 bash -c 'until curl -f http://localhost:2379/health; do sleep 1; done'
+
+      - name: Generate coverage for PR
+        run: |
+          cargo llvm-cov --all-features --workspace --lcov --output-path lcov-pr.info
+        env:
+          ETCD_ENDPOINTS: http://localhost:2379
+          RUST_LOG: debug
+
+      - name: Checkout main branch
+        run: |
+          git checkout origin/main
+
+      - name: Generate coverage for main
+        run: |
+          cargo llvm-cov --all-features --workspace --lcov --output-path lcov-main.info
+        env:
+          ETCD_ENDPOINTS: http://localhost:2379
+          RUST_LOG: debug
+
+      - name: Install diff-cover
+        run: |
+          pip install diff-cover
+
+      - name: Generate differential coverage report
+        run: |
+          git checkout ${{ github.event.pull_request.head.sha }}
+          diff-cover lcov-pr.info --compare-branch=origin/main --html-report diff-coverage.html --fail-under=80
+        continue-on-error: true
+
+      - name: Upload differential coverage report
+        uses: actions/upload-artifact@v3
+        with:
+          name: differential-coverage-report
+          path: diff-coverage.html
+          retention-days: 30
+
+      - name: Comment coverage on PR
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            
+            // Read coverage summary (you'd need to parse the actual output)
+            const comment = `
+            ## 📊 Coverage Report
+            
+            The coverage report has been generated for this PR.
+            
+            - 📁 [Full Coverage Report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            - 📋 [Differential Coverage](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            
+            > **Note**: Coverage must be at least 80% for new code changes.
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+  benchmark-coverage:
+    name: Benchmark Performance Impact
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@v2
+        with:
+          version: '23.x'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run benchmarks (if any exist)
+        run: |
+          if [ -d "benches" ]; then
+            cargo bench --no-run
+            echo "Benchmark compilation successful"
+          else
+            echo "No benchmarks found - skipping"
+          fi
+
+      - name: Check for performance regression markers
+        run: |
+          # Look for performance-critical code markers in the diff
+          git diff origin/main...HEAD | grep -E "(PERF|PERFORMANCE|CRITICAL_PATH)" || true
+          
+          # You could also check for specific patterns that might impact performance
+          git diff origin/main...HEAD | grep -E "(async|await|clone|allocat)" || true 
