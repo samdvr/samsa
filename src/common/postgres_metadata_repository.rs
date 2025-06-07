@@ -2,9 +2,11 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json;
 use sqlx::{PgPool, Row};
+use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::common::error::{Result, SamsaError};
+use crate::common::jwt::JwtService;
 use crate::common::metadata::{
     AccessToken, MetaDataRepository, StoredBucket, StoredStream, datetime_to_timestamp,
     timestamp_to_datetime,
@@ -14,11 +16,26 @@ use crate::proto::{AccessTokenInfo, BucketConfig, BucketState, StreamConfig};
 #[derive(Debug)]
 pub struct PostgresMetaDataRepository {
     pool: PgPool,
+    jwt_service: Arc<JwtService>,
 }
 
 impl PostgresMetaDataRepository {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        let jwt_service = Arc::new(JwtService::from_env().unwrap_or_else(|_| {
+            // Fallback to a default service for testing
+            JwtService::new(
+                "default-test-secret",
+                "samsa".to_string(),
+                "samsa-api".to_string(),
+                Uuid::new_v4().to_string(),
+            )
+        }));
+
+        Self { pool, jwt_service }
+    }
+
+    pub fn new_with_jwt_service(pool: PgPool, jwt_service: Arc<JwtService>) -> Self {
+        Self { pool, jwt_service }
     }
 }
 
@@ -487,14 +504,19 @@ impl MetaDataRepository for PostgresMetaDataRepository {
     }
 
     async fn create_access_token(&self, info: AccessTokenInfo) -> Result<String> {
-        let token_id = Uuid::new_v4();
-        let token_value = Uuid::new_v4().to_string();
+        // Create JWT token using the JWT service
+        let jwt_token = self.jwt_service.create_token(info.clone())?;
+
+        // Extract the token ID from the JWT for storage key
+        let _token_id = self.jwt_service.extract_token_id(&jwt_token)?;
+
+        let token_uuid = Uuid::new_v4();
         let info_json = serde_json::to_value(&info).map_err(|e| {
             SamsaError::Internal(format!("Failed to serialize access token info: {}", e))
         })?;
 
         let expires_at = info.expires_at.map(|ts| {
-            timestamp_to_datetime(ts) // Convert seconds to milliseconds
+            timestamp_to_datetime(ts * 1000) // Convert seconds to milliseconds, then to datetime
         });
 
         sqlx::query(
@@ -503,15 +525,15 @@ impl MetaDataRepository for PostgresMetaDataRepository {
             VALUES ($1, $2, $3, NOW(), $4)
             "#,
         )
-        .bind(token_id)
-        .bind(&token_value)
+        .bind(token_uuid)
+        .bind(&jwt_token)
         .bind(&info_json)
         .bind(expires_at)
         .execute(&self.pool)
         .await
         .map_err(|e| SamsaError::DatabaseError(Box::new(e)))?;
 
-        Ok(token_value)
+        Ok(jwt_token)
     }
 
     async fn get_access_token(&self, token_value: &str) -> Result<AccessToken> {
@@ -527,6 +549,9 @@ impl MetaDataRepository for PostgresMetaDataRepository {
         let info: AccessTokenInfo = serde_json::from_value(row.get("info")).map_err(|e| {
             SamsaError::Internal(format!("Failed to deserialize access token info: {}", e))
         })?;
+
+        // Validate the JWT token (this will check expiration, signature, etc.)
+        self.jwt_service.validate_token(token_value)?;
 
         Ok(AccessToken {
             id: row.get("id"),
@@ -570,9 +595,16 @@ impl MetaDataRepository for PostgresMetaDataRepository {
                 SamsaError::Internal(format!("Failed to deserialize access token info: {}", e))
             })?;
 
+            let token_value: String = row.get("token_value");
+
+            // Skip tokens that are JWT-expired (even if not database-expired)
+            if self.jwt_service.is_token_expired(&token_value) {
+                continue;
+            }
+
             tokens.push(AccessToken {
                 id: row.get("id"),
-                token: row.get("token_value"),
+                token: token_value,
                 info,
                 created_at: datetime_to_timestamp(row.get("created_at")),
                 expires_at: row
@@ -585,32 +617,74 @@ impl MetaDataRepository for PostgresMetaDataRepository {
     }
 
     async fn revoke_access_token(&self, token_value: &str) -> Result<AccessToken> {
-        // Get the token first
+        // Get the token first to validate it exists
         let token = self.get_access_token(token_value).await?;
 
-        // Delete the token
-        let result = sqlx::query("DELETE FROM access_tokens WHERE token_value = $1")
-            .bind(token_value)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| SamsaError::DatabaseError(Box::new(e)))?;
+        // Update the token to mark it as expired (revoked)
+        let result =
+            sqlx::query("UPDATE access_tokens SET expires_at = NOW() WHERE token_value = $1")
+                .bind(token_value)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| SamsaError::DatabaseError(Box::new(e)))?;
 
         if result.rows_affected() == 0 {
             return Err(SamsaError::NotFound("Access token not found".to_string()));
         }
 
-        Ok(token)
+        // Return the token with updated expires_at
+        let mut revoked_token = token;
+        revoked_token.expires_at = Some(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64,
+        );
+
+        Ok(revoked_token)
     }
 
     async fn cleanup_expired_tokens(&self) -> Result<usize> {
-        let result = sqlx::query(
+        // Clean up both database-expired and JWT-expired tokens
+
+        // First, clean up database-expired tokens
+        let db_result = sqlx::query(
             "DELETE FROM access_tokens WHERE expires_at IS NOT NULL AND expires_at < NOW()",
         )
         .execute(&self.pool)
         .await
         .map_err(|e| SamsaError::DatabaseError(Box::new(e)))?;
 
-        Ok(result.rows_affected() as usize)
+        let mut total_deleted = db_result.rows_affected() as usize;
+
+        // Then, find and clean up JWT-expired tokens that aren't database-expired yet
+        let rows = sqlx::query(
+            "SELECT token_value FROM access_tokens WHERE expires_at IS NULL OR expires_at >= NOW()",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| SamsaError::DatabaseError(Box::new(e)))?;
+
+        let mut jwt_expired_tokens = Vec::new();
+        for row in rows {
+            let token_value: String = row.get("token_value");
+            if self.jwt_service.is_token_expired(&token_value) {
+                jwt_expired_tokens.push(token_value);
+            }
+        }
+
+        // Delete JWT-expired tokens
+        for token_value in jwt_expired_tokens {
+            let result = sqlx::query("DELETE FROM access_tokens WHERE token_value = $1")
+                .bind(&token_value)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| SamsaError::DatabaseError(Box::new(e)))?;
+
+            total_deleted += result.rows_affected() as usize;
+        }
+
+        Ok(total_deleted)
     }
 
     async fn cleanup_deleted_buckets(&self, grace_period_seconds: u32) -> Result<usize> {

@@ -1004,8 +1004,8 @@ impl Storage {
             .await
     }
 
-    pub async fn revoke_access_token(&self, id: &str) -> Result<AccessToken> {
-        self.metadata_repo.revoke_access_token(id).await
+    pub async fn revoke_access_token(&self, token_value: &str) -> Result<AccessToken> {
+        self.metadata_repo.revoke_access_token(token_value).await
     }
 
     /// Read records starting from a specific sequence ID with optimized memory usage
@@ -1821,7 +1821,7 @@ pub trait MockableStorage: Send + Sync {
 
     async fn create_access_token(&self, info: AccessTokenInfo) -> Result<String>;
 
-    async fn revoke_access_token(&self, id: &str) -> Result<AccessToken>;
+    async fn revoke_access_token(&self, token_value: &str) -> Result<AccessToken>;
 
     async fn list_access_tokens(
         &self,
@@ -1863,8 +1863,8 @@ impl MockableStorage for Storage {
         self.create_access_token(info).await
     }
 
-    async fn revoke_access_token(&self, id: &str) -> Result<AccessToken> {
-        self.revoke_access_token(id).await
+    async fn revoke_access_token(&self, token_value: &str) -> Result<AccessToken> {
+        self.revoke_access_token(token_value).await
     }
 
     async fn list_access_tokens(

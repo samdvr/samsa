@@ -51,6 +51,11 @@ clap = { version = "4.0", features = ["derive"] }
 futures-util = "0.3.31"
 async-stream = "0.3"
 
+# JWT dependencies
+jsonwebtoken = "9.3"
+base64 = "0.22"
+rand = "0.8"
+
 # PostgreSQL dependencies
 sqlx = { version = "0.8", features = [
   "runtime-tokio-rustls",

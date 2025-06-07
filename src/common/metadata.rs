@@ -1,10 +1,12 @@
 use crate::common::error::{Result, SamsaError};
+use crate::common::jwt::JwtService;
 use crate::proto::*;
 use async_trait::async_trait;
 use chrono;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use std::time::SystemTime;
 use uuid::Uuid;
 
@@ -285,14 +287,14 @@ pub trait MetaDataRepository: Send + Sync {
 
     // Access token operations
     async fn create_access_token(&self, info: AccessTokenInfo) -> Result<String>;
-    async fn get_access_token(&self, id: &str) -> Result<AccessToken>;
+    async fn get_access_token(&self, token_value: &str) -> Result<AccessToken>;
     async fn list_access_tokens(
         &self,
         prefix: &str,
         start_after: &str,
         limit: Option<u64>,
     ) -> Result<Vec<AccessToken>>;
-    async fn revoke_access_token(&self, id: &str) -> Result<AccessToken>;
+    async fn revoke_access_token(&self, token_value: &str) -> Result<AccessToken>;
 
     // Cleanup operations
     async fn cleanup_expired_tokens(&self) -> Result<usize>;
@@ -306,6 +308,7 @@ pub struct InMemoryMetaDataRepository {
     buckets: InMemoryCrudRepository<StoredBucket>,
     streams: InMemoryCrudRepository<StoredStream>,
     access_tokens: InMemoryCrudRepository<AccessToken>,
+    jwt_service: Arc<JwtService>,
 }
 
 impl Default for InMemoryMetaDataRepository {
@@ -316,10 +319,30 @@ impl Default for InMemoryMetaDataRepository {
 
 impl InMemoryMetaDataRepository {
     pub fn new() -> Self {
+        let jwt_service = Arc::new(JwtService::from_env().unwrap_or_else(|_| {
+            // Fallback to a default service for testing
+            JwtService::new(
+                "default-test-secret",
+                "samsa".to_string(),
+                "samsa-api".to_string(),
+                Uuid::new_v4().to_string(),
+            )
+        }));
+
         Self {
             buckets: InMemoryCrudRepository::new(),
             streams: InMemoryCrudRepository::new(),
             access_tokens: InMemoryCrudRepository::new(),
+            jwt_service,
+        }
+    }
+
+    pub fn new_with_jwt_service(jwt_service: Arc<JwtService>) -> Self {
+        Self {
+            buckets: InMemoryCrudRepository::new(),
+            streams: InMemoryCrudRepository::new(),
+            access_tokens: InMemoryCrudRepository::new(),
+            jwt_service,
         }
     }
 }
@@ -586,27 +609,42 @@ impl MetaDataRepository for InMemoryMetaDataRepository {
     }
 
     async fn create_access_token(&self, info: AccessTokenInfo) -> Result<String> {
-        let token_id = if info.id.is_empty() {
-            Uuid::new_v4().to_string()
-        } else {
-            info.id.clone()
-        };
+        // Create JWT token using the JWT service
+        let jwt_token = self.jwt_service.create_token(info.clone())?;
 
+        // Extract the token ID from the JWT for storage key
+        let token_id = self.jwt_service.extract_token_id(&jwt_token)?;
+
+        // Create the access token record for storage
         let access_token = AccessToken {
             id: Uuid::new_v4(),
-            token: Uuid::new_v4().to_string(),
-            info,
+            token: jwt_token.clone(),
+            info: info.clone(),
             created_at: current_timestamp(),
-            expires_at: Some(current_timestamp() + 86400 * 30 * 1000), // 30 days in milliseconds
+            expires_at: info.expires_at.map(|exp_seconds| exp_seconds * 1000), // Convert to milliseconds
         };
 
-        let token = access_token.token.clone();
+        // Store using the token ID as the key
         self.access_tokens.create(token_id, access_token).await?;
-        Ok(token)
+        Ok(jwt_token)
     }
 
-    async fn get_access_token(&self, id: &str) -> Result<AccessToken> {
-        self.access_tokens.get(&id.to_string()).await
+    async fn get_access_token(&self, token_value: &str) -> Result<AccessToken> {
+        // For JWT tokens, we need to extract the token ID first
+        let token_id = self.jwt_service.extract_token_id(token_value)?;
+
+        // Get the stored token record
+        let stored_token = self.access_tokens.get(&token_id).await?;
+
+        // Verify the stored token matches the provided token
+        if stored_token.token != token_value {
+            return Err(SamsaError::NotFound("Access token not found".to_string()));
+        }
+
+        // Validate the JWT token (this will check expiration, signature, etc.)
+        self.jwt_service.validate_token(token_value)?;
+
+        Ok(stored_token)
     }
 
     async fn list_access_tokens(
@@ -623,18 +661,25 @@ impl MetaDataRepository for InMemoryMetaDataRepository {
             .filter(|entry| {
                 let token = entry.value();
                 let id = entry.key();
+
                 // Filter out expired tokens and apply prefix/start_after filters
                 if let Some(expires_at) = token.expires_at {
                     if current_time > expires_at {
                         return false;
                     }
                 }
+
+                // Also check if the JWT token itself is expired
+                if self.jwt_service.is_token_expired(&token.token) {
+                    return false;
+                }
+
                 id.starts_with(prefix) && id.as_str() > start_after
             })
             .map(|entry| entry.value().clone())
             .collect();
 
-        tokens.sort_by(|a, b| a.id.cmp(&b.id));
+        tokens.sort_by(|a, b| a.info.id.cmp(&b.info.id));
 
         if let Some(limit) = limit {
             tokens.truncate(limit.try_into().unwrap_or(usize::MAX));
@@ -643,15 +688,23 @@ impl MetaDataRepository for InMemoryMetaDataRepository {
         Ok(tokens)
     }
 
-    async fn revoke_access_token(&self, id: &str) -> Result<AccessToken> {
-        let key = id.to_string();
-        let mut token = self.access_tokens.get(&key).await?;
+    async fn revoke_access_token(&self, token_value: &str) -> Result<AccessToken> {
+        // Extract token ID from the JWT
+        let token_id = self.jwt_service.extract_token_id(token_value)?;
+
+        // Get the stored token
+        let mut token = self.access_tokens.get(&token_id).await?;
+
+        // Verify the stored token matches the provided token
+        if token.token != token_value {
+            return Err(SamsaError::NotFound("Access token not found".to_string()));
+        }
 
         // Set expires_at to current time to mark as revoked
         token.expires_at = Some(current_timestamp());
 
         // Update the token in storage with the new expires_at
-        self.access_tokens.update(&key, token.clone()).await?;
+        self.access_tokens.update(&token_id, token.clone()).await?;
 
         Ok(token)
     }
@@ -664,12 +717,19 @@ impl MetaDataRepository for InMemoryMetaDataRepository {
             .iter()
             .filter_map(|entry| {
                 let token = entry.value();
-                if let Some(expires_at) = token.expires_at {
-                    if current_time > expires_at {
-                        Some(entry.key().clone())
-                    } else {
-                        None
-                    }
+                let token_id = entry.key();
+
+                // Check both stored expiration and JWT expiration
+                let is_expired = if let Some(expires_at) = token.expires_at {
+                    current_time > expires_at
+                } else {
+                    false
+                };
+
+                let jwt_expired = self.jwt_service.is_token_expired(&token.token);
+
+                if is_expired || jwt_expired {
+                    Some(token_id.clone())
                 } else {
                     None
                 }

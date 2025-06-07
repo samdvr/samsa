@@ -20,6 +20,9 @@ pub enum SamsaError {
     #[error("Already exists: {0}")]
     AlreadyExists(String),
 
+    #[error("Unauthorized: {0}")]
+    Unauthorized(String),
+
     #[error("Internal error: {0}")]
     Internal(String),
 
@@ -63,6 +66,7 @@ impl From<SamsaError> for tonic::Status {
             SamsaError::AlreadyExists(msg) => tonic::Status::already_exists(msg),
             SamsaError::Validation(msg) => tonic::Status::invalid_argument(msg),
             SamsaError::Config(msg) => tonic::Status::failed_precondition(msg),
+            SamsaError::Unauthorized(msg) => tonic::Status::unauthenticated(msg),
             _ => tonic::Status::internal(err.to_string()),
         }
     }
